@@ -16,10 +16,15 @@ class Agent(object):
 
         # Environment
         self.env, self.eval_env = get_envs()
-        self.odim = self.env.observation_space.shape
-        self.adim = self.env.action_space.n
+        odim = self.env.observation_space.shape[0]
+        adim = self.env.action_space.shape[0]
 
-        # Network
+        # Actor-critic model
+        ac_kwargs = dict()
+        ac_kwargs['action_space'] = self.env.action_space
+        self.actor_critic = ActorCritic(odim, adim, self.config.hdims,**ac_kwargs)
+        self.buf = PPOBuffer(odim=self.odim,adim=adim,size=self.config.steps_per_epoch,
+                             gamma=self.config.gamma,lam=self.config.lam)
 
         # Buffer (Memory)
         self.buffer = PPOBuffer(size=self.config.buffer_size, odim=self.odim, adim=self.adim, gamma=self.config.gamma,lam=self.config.lam)
@@ -49,20 +54,20 @@ class Agent(object):
                 self.buffer.append(o, a, r, o1, d)
                 o = o1
             # Evaluate
-            if (epoch == 0) or (((epoch + 1) % config.evaluate_every) == 0):
+            if (epoch == 0) or (((epoch + 1) % self.config.evaluate_every) == 0):
                 ram_percent = psutil.virtual_memory().percent  # memory usage
                 print("[Eval. start] step:[%d/%d][%.1f%%] #step:[%.1e] time:[%s] ram:[%.1f%%]." %
-                      (epoch + 1, config.epochs, epoch / config.epochs * 100,
+                      (epoch + 1, self.config.epochs, epoch / self.config.epochs * 100,
                        n_env_step,
                        time.strftime("%H:%M:%S", time.gmtime(time.time() - start_time)),
                        ram_percent)
                       )
-                o, d, ep_ret, ep_len = eval_env.reset(), False, 0, 0
-                _ = eval_env.render(mode='human')
-                while not (d or (ep_len == config.steps_per_epoch)):
+                o, d, ep_ret, ep_len = self.eval_env.reset(), False, 0, 0
+                _ = self.eval_env.render(mode='human')
+                while not (d or (ep_len == self.config.steps_per_epoch)):
                     # a = sess.run(model['mu'], feed_dict={model['o_ph']: o.reshape(1, -1)})
-                    o, r, d, _ = eval_env.step(a)
-                    _ = eval_env.render(mode='human')
+                    o, r, d, _ = self.eval_env.step(a)
+                    _ = self.eval_env.render(mode='human')
                     ep_ret += r  # compute return
                     ep_len += 1
                 print("[Evaluate] ep_ret:[%.4f] ep_len:[%d]" % (ep_ret, ep_len))
