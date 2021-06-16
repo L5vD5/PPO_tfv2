@@ -7,6 +7,7 @@ from Replaybuffer import PPOBuffer
 from model import *
 import random
 from config import Config
+from collections import deque
 
 print ("Packaged loaded. TF version is [%s]."%(tf.__version__))
 
@@ -30,6 +31,11 @@ class Agent(object):
         # Optimizers
         self.train_pi = tf.keras.optimizers.Adam(learning_rate=self.config.pi_lr, epsilon=self.config.epsilon)
         self.train_v = tf.keras.optimizers.Adam(learning_rate=self.config.vf_lr, epsilon=self.config.epsilon)
+
+        self.pi_loss_metric = tf.keras.metrics.Mean(name="pi_loss")
+        self.q_loss_metric = tf.keras.metrics.Mean(name="Q_loss")
+        self.log_path = "./log/" + datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.summary_writer = tf.summary.create_file_writer(self.log_path + "/summary/")
 
     @tf.function
     def update_ppo(self, obs, act, adv, ret, logp):
@@ -71,9 +77,15 @@ class Agent(object):
             gradients = tape.gradient(v_loss, self.actor_critic.vf_mlp.trainable_weights)
             self.train_v.apply_gradients(zip(gradients, self.actor_critic.vf_mlp.trainable_variables))
 
+        self.pi_loss_metric.update_state(pi_loss)
+        self.q_loss_metric.update_state(v_loss)
+
+        return pi_loss, v_loss
+
     def train(self):
         start_time = time.time()
         o, r, d, ep_ret, ep_len, n_env_step = self.eval_env.reset(), 0, False, 0, 0, 0
+        latests_100_score = deque(maxlen=100)
 
         for epoch in range(self.config.epochs):
             if (epoch == 0) or (((epoch + 1) % self.config.print_every) == 0):
@@ -120,6 +132,24 @@ class Agent(object):
                     ep_ret += r  # compute return
                     ep_len += 1
                 print("[Evaluate] ep_ret:[%.4f] ep_len:[%d]" % (ep_ret, ep_len))
+                latests_100_score.append((ep_ret))
+                self.write_summary(epoch, latests_100_score, ep_ret, n_env_step)
+                print("Saving weights...")
+                self.actor_critic.save_weights(self.log_path + "/weights/weights")
+
+    def write_summary(self, episode, latest_100_score, episode_score, total_step):
+
+        with self.summary_writer.as_default():
+            tf.summary.scalar("Reward (clipped)", episode_score, step=episode)
+            tf.summary.scalar("Latest 100 avg reward (clipped)", np.mean(latest_100_score), step=episode)
+            tf.summary.scalar("Q_Loss", self.q_loss_metric.result(), step=episode)
+            tf.summary.scalar("PI_Loss", self.pi_loss_metric.result(), step=episode)
+            tf.summary.scalar("Total Frames", total_step, step=episode)
+
+        self.q_loss_metric.reset_states()
+        self.pi_loss_metric.reset_states()
+        # self.q_metric.reset_states()
+
 
 def get_envs():
     env_name = 'AntBulletEnv-v0'
