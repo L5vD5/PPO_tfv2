@@ -7,7 +7,7 @@ class Config:
         self.clip_ratio = 0.2
         self.pi_lr = 3e-4
         self.vf_lr = 1e-3
-        self.epsilon = 1e-8
+        self.epsilon = 1e-2
         #Buffer
         self.gamma = 0.99
         self.lam = 0.95
