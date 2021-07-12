@@ -2,7 +2,7 @@
 class Config:
     def __init__(self):
         # Model
-        self.hdims = [32, 32]
+        self.hdims = [256, 256]
         #Graph
         self.clip_ratio = 0.2
         self.pi_lr = 3e-4

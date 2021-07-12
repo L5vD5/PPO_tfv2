@@ -33,7 +33,8 @@ class Agent(object):
         self.train_v = tf.keras.optimizers.Adam(learning_rate=self.config.vf_lr, epsilon=self.config.epsilon)
 
         self.pi_loss_metric = tf.keras.metrics.Mean(name="pi_loss")
-        self.q_loss_metric = tf.keras.metrics.Mean(name="Q_loss")
+        self.v_loss_metric = tf.keras.metrics.Mean(name="V_loss")
+        self.q_metric = tf.keras.metrics.Mean(name="Q")
         self.log_path = "./log/" + datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         self.summary_writer = tf.summary.create_file_writer(self.log_path + "/summary/")
 
@@ -78,7 +79,7 @@ class Agent(object):
             self.train_v.apply_gradients(zip(gradients, self.actor_critic.vf_mlp.trainable_variables))
 
         self.pi_loss_metric.update_state(pi_loss)
-        self.q_loss_metric.update_state(v_loss)
+        self.v_loss_metric.update_state(v_loss)
 
         return pi_loss, v_loss
 
@@ -142,11 +143,11 @@ class Agent(object):
         with self.summary_writer.as_default():
             tf.summary.scalar("Reward (clipped)", episode_score, step=episode)
             tf.summary.scalar("Latest 100 avg reward (clipped)", np.mean(latest_100_score), step=episode)
-            tf.summary.scalar("Q_Loss", self.q_loss_metric.result(), step=episode)
+            tf.summary.scalar("V_Loss", self.v_loss_metric.result(), step=episode)
             tf.summary.scalar("PI_Loss", self.pi_loss_metric.result(), step=episode)
             tf.summary.scalar("Total Frames", total_step, step=episode)
 
-        self.q_loss_metric.reset_states()
+        self.v_loss_metric.reset_states()
         self.pi_loss_metric.reset_states()
         # self.q_metric.reset_states()
 
