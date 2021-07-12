@@ -151,48 +151,36 @@ class Agent(object):
         self.log_path = "./log/" + datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         self.summary_writer = tf.summary.create_file_writer(self.log_path + "/summary/")
 
-    @tf.function
+    # @tf.function
     def update_ppo(self, obs, act, adv, ret, logp):
-        logp_a_old = logp
         n_val_total = obs.shape[0]
 
         pi_loss, v_loss, kl, pi_iter = 0., 0., 0., 0
 
         for pi_iter in tf.range(self.config.train_pi_iters):
-            rand_idx = tf.constant(np.random.permutation(n_val_total)[:self.config.batch_size], dtype=tf.int32)
-            obs, act, adv, ret, logp = tf.gather(obs, rand_idx), tf.gather(act, rand_idx), tf.gather(adv, rand_idx), tf.gather(ret, rand_idx), tf.gather(logp, rand_idx)
-            # obs, act, adv, ret, logp = [tf.constant(x) for x in buf_batches]
-
+            rand_idx = np.random.permutation(n_val_total)[:self.config.batch_size]
+            obs_, act_, adv_, ret_, logp_ = tf.gather(obs, rand_idx), tf.gather(act, rand_idx), tf.gather(adv, rand_idx), tf.gather(ret, rand_idx), tf.gather(logp, rand_idx)
             with tf.GradientTape() as tape:
                 # pi, logp, logp_pi, mu
-                _, logp_a, _, _ = self.R.model.policy(obs, act)
-                ratio = tf.exp(logp_a - logp_a_old)  # pi(a|s) / pi_old(a|s)
-                min_adv = tf.where(adv > 0, (1 + self.config.clip_ratio) * adv, (1 - self.config.clip_ratio) * adv)
-                pi_loss = -tf.reduce_mean(tf.minimum(ratio * adv, min_adv))
+                _, logp_a, _, _ = self.R.model.policy(obs_, act_)
+                ratio = tf.exp(logp_a - logp_)  # pi(a|s) / pi_old(a|s)
+                min_adv = tf.where(adv_ > 0, (1 + self.config.clip_ratio) * adv_, (1 - self.config.clip_ratio) * adv_)
+                pi_loss = -tf.reduce_mean(tf.minimum(ratio * adv_, min_adv))
 
             gradients = tape.gradient(pi_loss, self.R.model.policy.trainable_weights)
             self.R.train_pi.apply_gradients(zip(gradients, self.R.model.policy.trainable_variables))
 
-            # _, logp_a, _, _ = self.actor_critic.policy(obs, act)
-            # ratio = tf.exp(logp_a - logp_a_old)  # pi(a|s) / pi_old(a|s)
-            # min_adv = tf.where(adv > 0, (1 + self.config.clip_ratio) * adv, (1 - self.config.clip_ratio) * adv)
-            # pi_loss = lambda: -tf.reduce_mean(tf.minimum(ratio * adv, min_adv))
-            #
-            # self.train_pi.minimize(pi_loss, var_list=[self.actor_critic.policy.trainable_variables])
-            kl = tf.reduce_mean(logp_a_old - logp_a)
+            kl = tf.reduce_mean(logp_ - logp_a)
             if kl > 1.5 * self.config.target_kl:
                 break
 
         for _ in tf.range(self.config.train_v_iters):
             rand_idx = tf.constant(np.random.permutation(n_val_total)[:self.config.batch_size], dtype=tf.int32)
-            obs, act, adv, ret, logp = tf.gather(obs, rand_idx), tf.gather(act, rand_idx), tf.gather(adv, rand_idx), tf.gather(ret, rand_idx), tf.gather(logp, rand_idx)
+            obs_, act_, adv_, ret_, logp_ = tf.gather(obs, rand_idx), tf.gather(act, rand_idx), tf.gather(adv, rand_idx), tf.gather(ret, rand_idx), tf.gather(logp, rand_idx)
 
-            # buf_batches = [tf.gather(obs, rand_idx), tf.gather(act, rand_idx), tf.gather(adv, rand_idx),
-            #                tf.gather(ret, rand_idx), tf.gather(logp, rand_idx)]
-            # obs, act, adv, ret, logp = [tf.constant(x) for x in buf_batches]
             with tf.GradientTape() as tape:
-                v = tf.squeeze(self.R.model.vf_mlp(obs))
-                v_loss = tf.keras.losses.MSE(v, ret)
+                v = tf.squeeze(self.R.model.vf_mlp(obs_))
+                v_loss = tf.keras.losses.MSE(v, ret_)
 
             gradients = tape.gradient(v_loss, self.R.model.vf_mlp.trainable_weights)
             self.R.train_v.apply_gradients(zip(gradients, self.R.model.vf_mlp.trainable_variables))
@@ -242,9 +230,9 @@ class Agent(object):
 
             # Print
             if (epoch == 0) or (((epoch + 1) % self.config.print_every) == 0):
-                print("[%d/%d] rollout:[%.1f]s pi_iter:[%d/%d] update:[%.1f]s kl:[%.4f] target_kl:[%.4f]." %
+                print("[%d/%d] rollout:[%.1f] pi_iter:[%d/%d] update:[%.1f] kl:[%.4f] target_kl:[%.4f]." %
                       (epoch + 1, self.config.epochs, sec_rollout, pi_iter, self.config.train_pi_iters, sec_update, kl, self.config.target_kl))
-                print("   pi_loss:[%.4f], v_loss:[%.4f], entropy:[%.4f]" % (pi_loss, v_loss, ent))
+                print("pi_loss:[%.4f], v_loss:[%.4f], entropy:[%.4f]" % (pi_loss, v_loss, ent))
 
             # Evaluate
             if (epoch == 0) or (((epoch + 1) % self.config.evaluate_every) == 0):
