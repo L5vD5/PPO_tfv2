@@ -25,7 +25,7 @@ class Agent(object):
         ac_kwargs = dict()
         ac_kwargs['action_space'] = self.env.action_space
         self.actor_critic = ActorCritic(odim, adim, self.config.hdims,**ac_kwargs)
-        self.buf = PPOBuffer(odim=odim,adim=adim,size=self.config.steps_per_epoch,
+        self.buf = PPOBuffer(odim=odim,adim=adim,
                              gamma=self.config.gamma,lam=self.config.lam)
 
         # Optimizers
@@ -46,6 +46,7 @@ class Agent(object):
         # adv = tf.constant(adv)
         # ret = tf.constant(ret)
         logp_a_old = logp
+        pi_loss, v_loss = 0., 0.
 
         for _ in tf.range(self.config.train_pi_iters):
 
@@ -65,7 +66,6 @@ class Agent(object):
             # pi_loss = lambda: -tf.reduce_mean(tf.minimum(ratio * adv, min_adv))
             #
             # self.train_pi.minimize(pi_loss, var_list=[self.actor_critic.policy.trainable_variables])
-
             kl = tf.reduce_mean(logp_a_old - logp_a)
             if kl > 1.5 * self.config.target_kl:
                 break

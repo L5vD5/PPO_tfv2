@@ -17,8 +17,8 @@ class Config:
         self.target_kl = 0.01
         self.epochs = 5000
         self.max_ep_len = 1000
-        self.steps_per_epoch = 1000
+        self.steps_per_epoch = 5000
         #Worker
         self.print_every = 10
-        self.evaluate_every = 50
+        self.evaluate_every = 10
         self.update_every = 10
