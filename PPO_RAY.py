@@ -151,7 +151,7 @@ class Agent(object):
         self.log_path = "./log/" + datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         self.summary_writer = tf.summary.create_file_writer(self.log_path + "/summary/")
 
-    @tf.function
+    # @tf.function
     def update_ppo(self, obs, act, adv, ret, logp):
         n_val_total = obs.shape[0]
 
