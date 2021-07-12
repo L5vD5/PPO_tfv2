@@ -26,4 +26,4 @@ class Config:
         self.update_every = 10
         self.batch_size = 4096
         # RAY
-        self.n_cpu = self.n_workers = 5
+        self.n_cpu = self.n_workers = 10
