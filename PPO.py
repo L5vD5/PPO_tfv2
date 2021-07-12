@@ -26,7 +26,7 @@ class Agent(object):
         ac_kwargs['action_space'] = self.env.action_space
         self.actor_critic = ActorCritic(odim, adim, self.config.hdims,**ac_kwargs)
         self.buf = PPOBuffer(odim=odim,adim=adim,
-                             gamma=self.config.gamma,lam=self.config.lam)
+                             size=self.config.steps_per_epoch, gamma=self.config.gamma,lam=self.config.lam)
 
         # Optimizers
         self.train_pi = tf.keras.optimizers.Adam(learning_rate=self.config.pi_lr, epsilon=self.config.epsilon)
