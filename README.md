@@ -11,7 +11,8 @@
 # Usage
 
 ```
-python SAC.py
+python PPO.py       # without ray
+python PPO_RAY.py   # with ray
 ```
 
 # Config
