@@ -23,7 +23,7 @@ pi_lr       # learning rate for policy parameter
 vf_lr       # learning rate for value function parameter
 epsilon     # TODO
 
-gamma         # discout factor 
+gamma       # discout factor 
 lam         # 
 
 
