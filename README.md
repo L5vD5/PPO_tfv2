@@ -1,6 +1,6 @@
 # PPO_tfv2
 
-# Requirements
+## Requirements
 
 - pybullet
 - tensorflow v2.5
@@ -8,14 +8,14 @@
 - gym
 - tensorflow_probability
 
-# Usage
+## Usage
 
 ```
 python PPO.py       # without ray
 python PPO_RAY.py   # with ray
 ```
 
-# Config
+## Config
 You can change config.py to fit your own flag.
 
 ```
