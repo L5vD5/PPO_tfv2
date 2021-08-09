@@ -11,8 +11,20 @@
 ## Usage
 
 ```
-python PPO.py       # without ray
-python PPO_RAY.py   # with ray
+$ python main.py --help
+
+$ python main.py                            # train without ray
+$ python main.py --ray                      # train with ray
+$ python main.py --play [weight_file_path]  # play with weight file
+
+usage: main.py [-h] [--ray] [--play PLAY]
+
+Atari: DQN
+
+optional arguments:
+  -h, --help   show this help message and exit
+  --ray        Train agent with given environment with ray
+  --play PLAY  Play agent with given environment
 ```
 
 ## Config
