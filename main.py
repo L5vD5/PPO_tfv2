@@ -2,7 +2,7 @@ import argparse
 
 def args_parse():
     parser = argparse.ArgumentParser(description="Atari: DQN")
-    parser.add_argument('--ray', action="store_true", help='Train agent with given environment')
+    parser.add_argument('--ray', action="store_true", help='Train agent with given environment with ray')
     parser.add_argument('--play', help='Play agent with given environment')
     args = parser.parse_args()
     return args
