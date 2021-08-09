@@ -31,7 +31,7 @@ lam         #
 hdims       # dimension of hidden layers
 
 # ray
-n_cpu = n_workers # TODO  cpu num
+n_cpu = n_workers # number of cpu
 
 # Update
 train_pi_iters
