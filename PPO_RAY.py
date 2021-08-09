@@ -288,6 +288,3 @@ def get_eval_env():
         o,r,d,_ = eval_env.step(a)
         time.sleep(0.01)
     return eval_env
-
-a = Agent()
-a.train()

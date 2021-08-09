@@ -11,6 +11,7 @@ from collections import deque
 
 print ("Packaged loaded. TF version is [%s]."%(tf.__version__))
 
+
 class Agent(object):
     def __init__(self):
         # Config
@@ -151,6 +152,26 @@ class Agent(object):
         self.pi_loss_metric.reset_states()
         # self.q_metric.reset_states()
 
+    def play(self, load_dir=None, trial=5):
+        RENDER_ON_EVAL = True
+
+        if load_dir:
+            loaded_ckpt = tf.train.latest_checkpoint(load_dir)
+            self.actor_critic.load_weights(loaded_ckpt)
+
+        for i in range(trial):
+            o, d, ep_ret, ep_len = self.eval_env.reset(), False, 0, 0
+            if RENDER_ON_EVAL:
+                _ = self.eval_env.render(mode='human')
+            while not (d):
+                a, _, _, _ = self.actor_critic.policy(tf.constant(o.reshape(1, -1)))
+                o, r, d, _ = self.eval_env.step(a.numpy()[0])
+                if RENDER_ON_EVAL:
+                    _ = self.eval_env.render(mode='human')
+                ep_ret += r  # compute return
+                ep_len += 1
+            print("[Evaluate] [%d/%d] ep_ret:[%.4f] ep_len:[%d]"
+                  % (i, trial, ep_ret, ep_len))
 
 def get_envs():
     env_name = 'AntBulletEnv-v0'
@@ -162,6 +183,3 @@ def get_envs():
         o,r,d,_ = eval_env.step(a)
         time.sleep(0.01)
     return env,eval_env
-
-a = Agent()
-a.train()
