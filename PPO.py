@@ -6,16 +6,29 @@ import datetime,gym,os,pybullet_envs,time,psutil,ray
 from Replaybuffer import PPOBuffer
 from model import *
 import random
-from config import Config
+# from config import Config
 from collections import deque
 
 print ("Packaged loaded. TF version is [%s]."%(tf.__version__))
 
 
 class Agent(object):
-    def __init__(self):
+    def __init__(self, args):
         # Config
-        self.config = Config()
+        self.gamma = args.gamma
+        self.lam = args.lam
+        self.hdims = args.hdims
+        self.steps_per_epoch = args.steps_per_epoch
+        self.pi_lr = args.pi_lr
+        self.vf_lr = args.vf_lr
+        self.train_pi_iters = args.train_pi_iters
+        self.clip_ratio = args.clip_ratio
+        self.target_kl = args.target_kl
+        self.train_v_iters = args.train_v_iters
+        self.epochs = args.epochs
+        self.print_every = args.print_every
+        self.max_ep_len = args.max_ep_len
+        self.evaluate_every = args.evaluate_every
 
         # Environment
         self.env, self.eval_env = get_envs()
@@ -25,13 +38,13 @@ class Agent(object):
         # Actor-critic model
         ac_kwargs = dict()
         ac_kwargs['action_space'] = self.env.action_space
-        self.actor_critic = ActorCritic(odim, adim, self.config.hdims,**ac_kwargs)
+        self.actor_critic = ActorCritic(odim, adim, self.hdims,**ac_kwargs)
         self.buf = PPOBuffer(odim=odim,adim=adim,
-                             size=self.config.steps_per_epoch, gamma=self.config.gamma,lam=self.config.lam)
+                             size=self.steps_per_epoch, gamma=self.gamma,lam=self.lam)
 
         # Optimizers
-        self.train_pi = tf.keras.optimizers.Adam(learning_rate=self.config.pi_lr, epsilon=self.config.epsilon)
-        self.train_v = tf.keras.optimizers.Adam(learning_rate=self.config.vf_lr, epsilon=self.config.epsilon)
+        self.train_pi = tf.keras.optimizers.Adam(learning_rate=self.pi_lr)
+        self.train_v = tf.keras.optimizers.Adam(learning_rate=self.vf_lr)
 
         self.pi_loss_metric = tf.keras.metrics.Mean(name="pi_loss")
         self.v_loss_metric = tf.keras.metrics.Mean(name="V_loss")
@@ -49,29 +62,23 @@ class Agent(object):
         logp_a_old = logp
         pi_loss, v_loss = 0., 0.
 
-        for _ in tf.range(self.config.train_pi_iters):
+        for _ in tf.range(self.train_pi_iters):
 
             with tf.GradientTape() as tape:
                 # pi, logp, logp_pi, mu
                 _, logp_a, _, _ = self.actor_critic.policy(obs, act)
                 ratio = tf.exp(logp_a - logp_a_old)  # pi(a|s) / pi_old(a|s)
-                min_adv = tf.where(adv > 0, (1 + self.config.clip_ratio) * adv, (1 - self.config.clip_ratio) * adv)
+                min_adv = tf.where(adv > 0, (1 + self.clip_ratio) * adv, (1 - self.clip_ratio) * adv)
                 pi_loss = -tf.reduce_mean(tf.minimum(ratio * adv, min_adv))
 
             gradients = tape.gradient(pi_loss, self.actor_critic.policy.trainable_weights)
             self.train_pi.apply_gradients(zip(gradients, self.actor_critic.policy.trainable_variables))
 
-            # _, logp_a, _, _ = self.actor_critic.policy(obs, act)
-            # ratio = tf.exp(logp_a - logp_a_old)  # pi(a|s) / pi_old(a|s)
-            # min_adv = tf.where(adv > 0, (1 + self.config.clip_ratio) * adv, (1 - self.config.clip_ratio) * adv)
-            # pi_loss = lambda: -tf.reduce_mean(tf.minimum(ratio * adv, min_adv))
-            #
-            # self.train_pi.minimize(pi_loss, var_list=[self.actor_critic.policy.trainable_variables])
             kl = tf.reduce_mean(logp_a_old - logp_a)
-            if kl > 1.5 * self.config.target_kl:
+            if kl > 1.5 * self.target_kl:
                 break
 
-        for _ in tf.range(self.config.train_v_iters):
+        for _ in tf.range(self.train_v_iters):
             with tf.GradientTape() as tape:
                 v = tf.squeeze(self.actor_critic.vf_mlp(obs))
                 v_loss = tf.keras.losses.MSE(v, ret)
@@ -89,11 +96,11 @@ class Agent(object):
         o, r, d, ep_ret, ep_len, n_env_step = self.eval_env.reset(), 0, False, 0, 0, 0
         latests_100_score = deque(maxlen=100)
 
-        for epoch in range(self.config.epochs):
-            if (epoch == 0) or (((epoch + 1) % self.config.print_every) == 0):
-                print("[%d/%d]" % (epoch + 1, self.config.epochs))
+        for epoch in range(self.epochs):
+            if (epoch == 0) or (((epoch + 1) % self.print_every) == 0):
+                print("[%d/%d]" % (epoch + 1, self.epochs))
             o = self.env.reset()
-            for t in range(self.config.steps_per_epoch):
+            for t in range(self.steps_per_epoch):
                 a, _, logp_t, v_t, _ = self.actor_critic(o.reshape(1, -1))
 
                 o2, r, d, _ = self.env.step(a.numpy()[0])
@@ -105,8 +112,8 @@ class Agent(object):
                 self.buf.store(o, a, r, v_t, logp_t)
                 o = o2
 
-                terminal = d or (ep_len == self.config.max_ep_len)
-                if terminal or (t == (self.config.steps_per_epoch - 1)):
+                terminal = d or (ep_len == self.max_ep_len)
+                if terminal or (t == (self.steps_per_epoch - 1)):
                     # if trajectory didn't reach terminal state, bootstrap value target
                     last_val = 0 if d else self.actor_critic.vf_mlp(tf.constant(o.reshape(1, -1))).numpy()[0][0]
                     self.buf.finish_path(last_val)
@@ -117,17 +124,17 @@ class Agent(object):
             self.update_ppo(obs, act, adv, ret, logp)
 
             # Evaluate
-            if (epoch == 0) or (((epoch + 1) % self.config.evaluate_every) == 0):
+            if (epoch == 0) or (((epoch + 1) % self.evaluate_every) == 0):
                 ram_percent = psutil.virtual_memory().percent  # memory usage
                 print("[Eval. start] step:[%d/%d][%.1f%%] #step:[%.1e] time:[%s] ram:[%.1f%%]." %
-                      (epoch + 1, self.config.epochs, epoch / self.config.epochs * 100,
+                      (epoch + 1, self.epochs, epoch / self.epochs * 100,
                        n_env_step,
                        time.strftime("%H:%M:%S", time.gmtime(time.time() - start_time)),
                        ram_percent)
                       )
                 o, d, ep_ret, ep_len = self.eval_env.reset(), False, 0, 0
                 _ = self.eval_env.render(mode='human')
-                while not (d or (ep_len == self.config.max_ep_len)):
+                while not (d or (ep_len == self.max_ep_len)):
                     a, _, _, _ = self.actor_critic.policy(tf.constant(o.reshape(1, -1)))
                     o, r, d, _ = self.eval_env.step(a.numpy()[0])
                     _ = self.eval_env.render(mode='human')
