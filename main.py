@@ -1,7 +1,7 @@
 import argparse
 
 def args_parse():
-    parser = argparse.ArgumentParser(description="Atari: DQN")
+    parser = argparse.ArgumentParser(description="PPO")
     parser.add_argument('--ray', type=int, help='Train agent with given environment with ray')
     parser.add_argument('--play', help='Play agent with given environment')
     parser.add_argument('--hdims', type=int, nargs='+', help='size of hidden dimension', required=True)
