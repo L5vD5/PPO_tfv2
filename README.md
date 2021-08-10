@@ -26,7 +26,7 @@ usage: main.py [-h] [--ray RAY] [--play PLAY] --hdims HDIMS [HDIMS ...]
                [--ep_len_rollout EP_LEN_ROLLOUT] [--batch_size BATCH_SIZE]
                [--evaluate_every EVALUATE_EVERY]
 
-Atari: DQN
+PPO
 
 optional arguments:
   -h, --help            show this help message and exit
