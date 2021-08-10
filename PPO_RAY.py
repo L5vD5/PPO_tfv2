@@ -6,7 +6,6 @@ import datetime,gym,os,pybullet_envs,time,psutil,ray
 from Replaybuffer import PPOBuffer
 from model import *
 import random
-from config import Config
 from collections import deque
 # from util import gpu_sess,suppress_tf_warning
 np.set_printoptions(precision=2)
@@ -20,26 +19,25 @@ class RolloutWorkerClass(object):
     """
     Worker without RAY (for update purposes)
     """
-    def __init__(self, seed=1):
+    def __init__(self, args, seed=1):
         self.seed = seed
         self.env = get_env()
         odim, adim = self.env.observation_space.shape[0], self.env.action_space.shape[0]
         self.odim = odim
         self.adim = adim
-        # Config
-        self.config = Config()
+
         # Actor-critic model
         ac_kwargs = dict()
         ac_kwargs['action_space'] = self.env.action_space
-        self.model = ActorCritic(odim, adim, self.config.hdims, **ac_kwargs)
+        self.model = ActorCritic(odim, adim, args.hdims, **ac_kwargs)
 
         # Initialize model
         tf.random.set_seed(self.seed)
         np.random.seed(self.seed)
 
         # Optimizers
-        self.train_pi = tf.keras.optimizers.Adam(learning_rate=self.config.pi_lr, epsilon=self.config.epsilon)
-        self.train_v = tf.keras.optimizers.Adam(learning_rate=self.config.vf_lr, epsilon=self.config.epsilon)
+        self.train_pi = tf.keras.optimizers.Adam(learning_rate=args.pi_lr)
+        self.train_v = tf.keras.optimizers.Adam(learning_rate=args.vf_lr)
 
     @tf.function
     def get_action(self, o):
@@ -72,26 +70,25 @@ class RayRolloutWorkerClass(object):
     """
     Rollout Worker with RAY
     """
-    def __init__(self,worker_id=0, ep_len_rollout=1000):
+    def __init__(self, args, worker_id=0):
         self.worker_id = worker_id
-        self.ep_len_rollout = ep_len_rollout
         self.env = get_env()
-        # Config
-        self.config = Config()
+                
         odim, adim = self.env.observation_space.shape[0], self.env.action_space.shape[0]
         self.odim = odim
         self.adim = adim
+        self.ep_len_rollout = args.ep_len_rollout
 
         # Actor-critic model
         ac_kwargs = dict()
         ac_kwargs['action_space'] = self.env.action_space
-        self.model = ActorCritic(odim, adim, self.config.hdims,**ac_kwargs)
+        self.model = ActorCritic(odim, adim, args.hdims,**ac_kwargs)
         self.buf = PPOBuffer(odim=odim,adim=adim,
-                             size=self.config.ep_len_rollout, gamma=self.config.gamma,lam=self.config.lam)
+                             size=self.ep_len_rollout, gamma=args.gamma, lam=args.lam)
 
         # Optimizers
-        self.train_pi = tf.keras.optimizers.Adam(learning_rate=self.config.pi_lr, epsilon=self.config.epsilon)
-        self.train_v = tf.keras.optimizers.Adam(learning_rate=self.config.vf_lr, epsilon=self.config.epsilon)
+        self.train_pi = tf.keras.optimizers.Adam(learning_rate=args.pi_lr)
+        self.train_v = tf.keras.optimizers.Adam(learning_rate=args.vf_lr)
 
         # Flag to initialize rollout
         self.FIRST_ROLLOUT_FLAG = True
@@ -112,7 +109,7 @@ class RayRolloutWorkerClass(object):
             self.o = self.env.reset()  # reset environment
 
         o = self.env.reset()
-        for t in range(self.config.ep_len_rollout):
+        for t in range(self.ep_len_rollout):
             a, _, logp_t, v_t, _ = self.model(o.reshape(1, -1))
 
             o2, r, d, _ = self.env.step(a.numpy()[0])
@@ -127,9 +124,25 @@ class RayRolloutWorkerClass(object):
         return self.buf.get()
 
 class Agent(object):
-    def __init__(self):
+    def __init__(self, args):
         # Config
-        self.config = Config()
+        self.gamma = args.gamma
+        self.lam = args.lam
+        self.hdims = args.hdims
+        self.steps_per_epoch = args.steps_per_epoch
+        self.pi_lr = args.pi_lr
+        self.vf_lr = args.vf_lr
+        self.train_pi_iters = args.train_pi_iters
+        self.clip_ratio = args.clip_ratio
+        self.target_kl = args.target_kl
+        self.train_v_iters = args.train_v_iters
+        self.epochs = args.epochs
+        self.print_every = args.print_every
+        self.max_ep_len = args.max_ep_len
+        self.evaluate_every = args.evaluate_every
+        self.ep_len_rollout = args.ep_len_rollout
+        self.n_cpu = self.n_workers = args.ray
+        self.batch_size = args.batch_size
 
         # Environment
         self.eval_env = get_env()
@@ -138,12 +151,12 @@ class Agent(object):
         self.odim = odim
         self.adim = adim
 
-        ray.init(num_cpus=self.config.n_cpu)
-        self.R = RolloutWorkerClass(seed=0)
-        self.workers = [RayRolloutWorkerClass.remote(worker_id=i, ep_len_rollout=self.config.ep_len_rollout)
-                   for i in range(int(self.config.n_cpu))]
+        ray.init(num_cpus=self.n_cpu)
+        self.R = RolloutWorkerClass(args, seed=0)
+        self.workers = [RayRolloutWorkerClass.remote(args, worker_id=i)
+                   for i in range(int(self.n_cpu))]
         print("RAY initialized with [%d] cpus and [%d] workers." %
-              (self.config.n_cpu, self.config.n_workers))
+              (self.n_cpu, self.n_workers))
 
         self.pi_loss_metric = tf.keras.metrics.Mean(name="pi_loss")
         self.v_loss_metric = tf.keras.metrics.Mean(name="V_loss")
@@ -157,25 +170,25 @@ class Agent(object):
 
         pi_loss, v_loss, kl, pi_iter = 0., 0., 0., 0
 
-        for pi_iter in tf.range(self.config.train_pi_iters):
-            rand_idx = np.random.permutation(n_val_total)[:self.config.batch_size]
+        for pi_iter in tf.range(self.train_pi_iters):
+            rand_idx = np.random.permutation(n_val_total)[:self.batch_size]
             obs_, act_, adv_, ret_, logp_ = tf.gather(obs, rand_idx), tf.gather(act, rand_idx), tf.gather(adv, rand_idx), tf.gather(ret, rand_idx), tf.gather(logp, rand_idx)
             with tf.GradientTape() as tape:
                 # pi, logp, logp_pi, mu
                 _, logp_a, _, _ = self.R.model.policy(obs_, act_)
                 ratio = tf.exp(logp_a - logp_)  # pi(a|s) / pi_old(a|s)
-                min_adv = tf.where(adv_ > 0, (1 + self.config.clip_ratio) * adv_, (1 - self.config.clip_ratio) * adv_)
+                min_adv = tf.where(adv_ > 0, (1 + self.clip_ratio) * adv_, (1 - self.clip_ratio) * adv_)
                 pi_loss = -tf.reduce_mean(tf.minimum(ratio * adv_, min_adv))
 
             gradients = tape.gradient(pi_loss, self.R.model.policy.trainable_weights)
             self.R.train_pi.apply_gradients(zip(gradients, self.R.model.policy.trainable_variables))
 
             kl = tf.reduce_mean(logp_ - logp_a)
-            if kl > 1.5 * self.config.target_kl:
+            if kl > 1.5 * self.target_kl:
                 break
 
-        for _ in tf.range(self.config.train_v_iters):
-            rand_idx = tf.constant(np.random.permutation(n_val_total)[:self.config.batch_size], dtype=tf.int32)
+        for _ in tf.range(self.train_v_iters):
+            rand_idx = tf.constant(np.random.permutation(n_val_total)[:self.batch_size], dtype=tf.int32)
             obs_, act_, adv_, ret_, logp_ = tf.gather(obs, rand_idx), tf.gather(act, rand_idx), tf.gather(adv, rand_idx), tf.gather(ret, rand_idx), tf.gather(logp, rand_idx)
 
             with tf.GradientTape() as tape:
@@ -197,7 +210,7 @@ class Agent(object):
         start_time = time.time()
         n_env_step = 0  # number of environment steps
 
-        for epoch in range(self.config.epochs):
+        for epoch in range(self.epochs):
             # 1. Synchronize worker weights
             weights = self.R.get_weights()
             set_weights_list = [worker.set_weights.remote(weights) for worker in self.workers]
@@ -229,23 +242,23 @@ class Agent(object):
             sec_update = time.time() - t_start  # toc
 
             # Print
-            if (epoch == 0) or (((epoch + 1) % self.config.print_every) == 0):
+            if (epoch == 0) or (((epoch + 1) % self.print_every) == 0):
                 print("[%d/%d] rollout:[%.1f] pi_iter:[%d/%d] update:[%.1f] kl:[%.4f] target_kl:[%.4f]." %
-                      (epoch + 1, self.config.epochs, sec_rollout, pi_iter, self.config.train_pi_iters, sec_update, kl, self.config.target_kl))
+                      (epoch + 1, self.epochs, sec_rollout, pi_iter, self.train_pi_iters, sec_update, kl, self.target_kl))
                 print("pi_loss:[%.4f], v_loss:[%.4f], entropy:[%.4f]" % (pi_loss, v_loss, ent))
 
             # Evaluate
-            if (epoch == 0) or (((epoch + 1) % self.config.evaluate_every) == 0):
+            if (epoch == 0) or (((epoch + 1) % self.evaluate_every) == 0):
                 ram_percent = psutil.virtual_memory().percent  # memory usage
                 print("[Eval. start] step:[%d/%d][%.1f%%] #step:[%.1e] time:[%s] ram:[%.1f%%]." %
-                      (epoch + 1, self.config.epochs, epoch / self.config.epochs * 100,
+                      (epoch + 1, self.epochs, epoch / self.epochs * 100,
                        n_env_step,
                        time.strftime("%H:%M:%S", time.gmtime(time.time() - start_time)),
                        ram_percent)
                       )
                 o, d, ep_ret, ep_len = self.eval_env.reset(), False, 0, 0
                 _ = self.eval_env.render(mode='human')
-                while not (d or (ep_len == self.config.max_ep_len)):
+                while not (d or (ep_len == self.max_ep_len)):
                     a, _, _, _ = self.R.model.policy(tf.constant(o.reshape(1, -1)))
                     o, r, d, _ = self.eval_env.step(a.numpy()[0])
                     _ = self.eval_env.render(mode='human')

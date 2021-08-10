@@ -6,7 +6,6 @@ import datetime,gym,os,pybullet_envs,time,psutil,ray
 from Replaybuffer import PPOBuffer
 from model import *
 import random
-# from config import Config
 from collections import deque
 
 print ("Packaged loaded. TF version is [%s]."%(tf.__version__))

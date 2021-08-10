@@ -2,7 +2,7 @@ import argparse
 
 def args_parse():
     parser = argparse.ArgumentParser(description="Atari: DQN")
-    parser.add_argument('--ray', action="store_true", help='Train agent with given environment with ray')
+    parser.add_argument('--ray', type=int, help='Train agent with given environment with ray')
     parser.add_argument('--play', help='Play agent with given environment')
     parser.add_argument('--hdims', type=int, nargs='+', help='size of hidden dimension', required=True)
     parser.add_argument('--clip_ratio', default=0.2, help='Hyperparameter for clipping in the policy objective')
@@ -17,6 +17,8 @@ def args_parse():
     parser.add_argument('--max_ep_len', default=1000, help='Maximum length of trajectory')
     parser.add_argument('--steps_per_epoch', default=5000, help='How many steps per epoch')
     parser.add_argument('--print_every', default=10, help='How often to print result')
+    parser.add_argument('--ep_len_rollout', default=500, help='How many episodes per rollout in ray')
+    parser.add_argument('--batch_size', default=4096, help='How big batch size in ray')
     parser.add_argument('--evaluate_every', default=50,  help='How often to evaluate agent')
 
     args = parser.parse_args()
